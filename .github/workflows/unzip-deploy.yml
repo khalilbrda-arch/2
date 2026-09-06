@@ -1,0 +1,83 @@
+name: Unzip Project Archive Into Repo
+
+# طريقة الاستخدام:
+# 1) ادفع ملف الـ zip إلى جذر المستودع (مثلاً عبر "Add file → Upload files"
+#    على GitHub مباشرة، أو عبر git push عادي) دون فك ضغطه.
+# 2) اذهب إلى تبويب Actions → اختر "Unzip Project Archive Into Repo" من
+#    القائمة اليسرى → Run workflow.
+# 3) أدخل اسم/مسار ملف الـ zip كما رفعته (مثال:
+#    Infinity_depths-v0_14_1-fixed.zip) ثم شغّل.
+#
+# الإجراء سيفك الضغط في جذر المستودع محافظًا تمامًا على مسارات الملفات
+# (src/..., tests/..., index.html, ...)، ثم يحذف ملف الـ zip نفسه بعد
+# الفك، ثم يعمل commit + push مباشرة على نفس الفرع الذي شغّلت منه العملية.
+
+on:
+  workflow_dispatch:
+    inputs:
+      zip_path:
+        description: "مسار ملف الـ zip داخل المستودع (كما رُفع)"
+        required: true
+        default: "Infinity_depths-v0_14_1-fixed.zip"
+      remove_zip_after_extract:
+        description: "احذف ملف الـ zip من المستودع بعد فك الضغط؟"
+        required: false
+        default: "true"
+
+permissions:
+  contents: write
+
+jobs:
+  unzip-and-commit:
+    name: Extract archive and commit contents
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the archive exists
+        run: |
+          if [ ! -f "${{ github.event.inputs.zip_path }}" ]; then
+            echo "::error::لم يتم العثور على الملف: ${{ github.event.inputs.zip_path }}"
+            echo "::error::تأكد أنك رفعت ملف الـ zip إلى جذر المستودع بنفس هذا الاسم قبل تشغيل العملية."
+            exit 1
+          fi
+
+      - name: Extract archive at repo root (preserving file paths)
+        run: |
+          set -e
+          ZIP_PATH="${{ github.event.inputs.zip_path }}"
+          echo "Extracting: $ZIP_PATH"
+
+          TMP_DIR="$(mktemp -d)"
+          unzip -o "$ZIP_PATH" -d "$TMP_DIR"
+
+          # إن كان الأرشيف يحتوي مجلدًا واحدًا فقط في القمة (شائع عند
+          # ضغط مشروع كامل)، ادخل إليه واعتبر محتواه هو جذر المشروع،
+          # حتى لا ينتهي بنا الأمر بمجلد متداخل زائد داخل المستودع.
+          ENTRIES=("$TMP_DIR"/*)
+          if [ "${#ENTRIES[@]}" -eq 1 ] && [ -d "${ENTRIES[0]}" ]; then
+            SRC_DIR="${ENTRIES[0]}"
+          else
+            SRC_DIR="$TMP_DIR"
+          fi
+
+          echo "Copying extracted content from: $SRC_DIR"
+          cp -a "$SRC_DIR"/. "$GITHUB_WORKSPACE"/
+
+          rm -rf "$TMP_DIR"
+
+      - name: Remove the archive file from the repo
+        if: ${{ github.event.inputs.remove_zip_after_extract == 'true' }}
+        run: |
+          rm -f "${{ github.event.inputs.zip_path }}"
+
+      - name: Commit and push extracted files
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: extract project archive (${{ github.event.inputs.zip_path }}) into repo"
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "github-actions[bot]@users.noreply.github.com"
