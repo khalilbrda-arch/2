@@ -11,6 +11,15 @@ name: Unzip Project Archive Into Repo
 # الإجراء سيفك الضغط في جذر المستودع محافظًا تمامًا على مسارات الملفات
 # (src/..., tests/..., index.html, ...)، ثم يحذف ملف الـ zip نفسه بعد
 # الفك، ثم يعمل commit + push مباشرة على نفس الفرع الذي شغّلت منه العملية.
+#
+# ملاحظة مهمة: GitHub يمنع الـ GITHUB_TOKEN الافتراضي من إنشاء أو
+# تعديل ملفات داخل .github/workflows/ (قيد أمان من GitHub نفسه، وليس
+# جزءًا من هذا الملف). لذلك يتجاهل هذا الإجراء أي محتوى ضمن
+# .github/workflows/ الموجود داخل الأرشيف، ويطبع تحذيرًا بأسماء تلك
+# الملفات بدل أن يفشل الدفع بالكامل. إن كان عندك تحديث فعلي لملفات
+# الـ workflows نفسها، ارفعه يدويًا عبر "Add file → Upload files" على
+# GitHub مباشرة، أو أنشئ Personal Access Token بصلاحية "workflow"
+# واستخدمه بدل GITHUB_TOKEN في خطوة actions/checkout.
 
 on:
   workflow_dispatch:
@@ -63,6 +72,16 @@ jobs:
             SRC_DIR="${ENTRIES[0]}"
           else
             SRC_DIR="$TMP_DIR"
+          fi
+
+          # GitHub يرفض دفع أي تعديل على .github/workflows/ بواسطة
+          # الـ GITHUB_TOKEN الافتراضي (قيد صلاحيات من GitHub نفسه).
+          # نستثنيه هنا بدل أن نفشل كامل العملية، ونطبع تحذيرًا بدلًا
+          # من ذلك.
+          if [ -d "$SRC_DIR/.github/workflows" ]; then
+            echo "::warning::تم تجاهل ملفات workflow التالية من الأرشيف (يجب رفعها يدويًا عبر واجهة GitHub):"
+            find "$SRC_DIR/.github/workflows" -maxdepth 1 -type f -printf '::warning:: - %f\n'
+            rm -rf "$SRC_DIR/.github/workflows"
           fi
 
           echo "Copying extracted content from: $SRC_DIR"
